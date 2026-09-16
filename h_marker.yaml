@@ -1,0 +1,5 @@
+path: /home/ahao/target_detection/h_dataset
+train: images/train
+val: images/val
+names: ['h_marker']
+nc: 1
