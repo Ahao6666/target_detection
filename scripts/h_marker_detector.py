@@ -5,6 +5,7 @@ from sensor_msgs.msg import Image, CameraInfo
 from geometry_msgs.msg import Point
 from cv_bridge import CvBridge
 from ultralytics import YOLO
+import cv2
 import numpy as np
 
 class HMarkerDetector(Node):
