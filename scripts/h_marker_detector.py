@@ -19,7 +19,7 @@ class HMarkerDetector(Node):
 
         self.bridge = CvBridge()
         # 先用官方模型验证链路；训练好以后换成 best.pt
-        self.model = YOLO('yolov8n.pt')
+        self.model = YOLO('best.pt')
 
         self.K = None                    # 相机内参 3x3
         self.marker_size = 1.0           # H 标实际边长(米)，改成你的真实值

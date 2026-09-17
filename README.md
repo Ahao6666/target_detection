@@ -19,18 +19,6 @@ sudo sh start_docker_ardupilot_mavros.sh -v v1.1.5
 
 
 
-## 运行
-
-```
-source /opt/ros/$ROS_DISTRO/setup.bash
-source ~/yolo_venv/bin/activate
-python3 h_marker_detector.py
-
-# 另开终端看结果
-ros2 topic echo /h_marker/position
-rqt_image_view   # 选 /h_marker/annotated 看带框画面
-```
-
 ## 数据采集 + 自动标注
 
 H 标固定在世界原点，结合 MAVROS 位姿和相机内外参把 H 标投影到图像自动生成
@@ -96,5 +84,18 @@ python3 h_data_collector.py -p cam_offset_x:=0.50 -p cam_offset_y:=-0.20
 ## 训练
 
 ```
-yolo detect train data=h_marker.yaml model=yolov8n.pt epochs=100 imgsz=640
+yolo detect train data=h_marker.yaml model=scripts/yolov8n.pt epochs=100 imgsz=640
 ```
+
+## 运行
+
+```
+source /opt/ros/$ROS_DISTRO/setup.bash
+source ~/yolo_venv/bin/activate
+python3 h_marker_detector.py
+
+# 另开终端看结果
+ros2 topic echo /h_marker/position
+rqt_image_view   # 选 /h_marker/annotated 看带框画面
+```
+
