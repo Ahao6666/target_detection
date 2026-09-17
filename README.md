@@ -211,7 +211,7 @@ ros2 topic echo /h_marker/position
 rqt_image_view   # 选 /h_marker/annotated 看带框画面
 ```
 
-### 输出 `/h_marker/position`（geometry_msgs/Point）的坐标约定
+**输出 `/h_marker/position`（geometry_msgs/Point）的坐标约定**
 
 H 标中心在**左目相机光轴坐标系**下的位置，单位米，**z 前、x 右、y 下**
 （消息无 frame_id，以此约定为准）。计算方式：深度 `z = fy·marker_size/框高`
