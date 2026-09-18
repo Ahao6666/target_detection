@@ -1,4 +1,4 @@
-path: /home/ahao/target_detection/target_manual_images
+path: .
 train: images/train
 val: images/val
 names: ['target']

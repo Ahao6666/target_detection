@@ -7,8 +7,8 @@ manual_label.py — 用鼠标在图像上框选目标，生成 YOLO 格式标注
 
 运行：
     python3 scripts/manual_label.py \
-      --images /home/ahao/target_detection/target_manual_images/images/train \
-      --output /home/ahao/target_detection/target_manual_images/labels/train
+      --images target_manual_images/images/train \
+      --output target_manual_images/labels/train
 
 操作：
     鼠标左键拖拽：画框

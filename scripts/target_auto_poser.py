@@ -8,7 +8,7 @@ target_auto_poser.py — Gazebo 自动摆位节点（甜甜圈采样）
 搭配使用（目标可以是 target或任何静止平面目标）：
     # 方式A：直接存图，用于 target 手动标注
     python3 target_auto_poser.py -p save_images:=true \
-        -p output_dir:=/home/ahao/target_detection/target_manual_images
+        -p output_dir:=target_manual_images
 
     # 方式B：与 H 标自动标注联动，target_auto_poser 提供真值位姿
     # 终端1：采集脚本改听真值位姿（其 marker_x/y/z 与本节点 target_x/y/z 必须一致）
@@ -26,9 +26,7 @@ target_auto_poser.py — Gazebo 自动摆位节点（甜甜圈采样）
                   gz service -s /world/<world_name>/set_pose --reqtype gz.msgs.Pose
                              --reptype gz.msgs.Boolean --timeout 1000 --req '<protobuf text>'
                   需要本机装有 gz CLI 且能访问仿真（同 GZ_PARTITION/网络可达）
-    2. gz_ros   : ROS 服务 /world/<world>/set_pose (ros_gz_interfaces/srv/SetEntityPose)
-                  需要 ros_gz_bridge 暴露该服务且本机装有 ros-$ROS_DISTRO-ros-gz-interfaces
-    3. classic  : ROS 服务 /gazebo/set_model_state (Gazebo classic)
+    2. classic  : ROS 服务 /gazebo/set_model_state (Gazebo classic)
 
 目标位置由参数 target_x/y/z 手动输入（Gazebo 世界系），脚本不做自动识别。
 """
@@ -48,13 +46,6 @@ from cv_bridge import CvBridge
 from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import Image
 from std_srvs.srv import SetBool, Trigger
-
-try:
-    from ros_gz_interfaces.srv import SetEntityPose
-    from ros_gz_interfaces.msg import Entity
-    HAS_ROS_GZ = True
-except ImportError:
-    HAS_ROS_GZ = False
 
 try:
     from gazebo_msgs.srv import SetModelState
@@ -107,7 +98,7 @@ class TargetAutoPoser(Node):
         self.declare_parameter('hold_rate_hz', 30.0)      # 重复置位频率(抑制自由落体)
 
         # 后端
-        self.declare_parameter('backend', 'auto')         # auto/gz_cli/gz_ros/classic
+        self.declare_parameter('backend', 'auto')         # auto/gz_cli/classic
         self.declare_parameter('gz_cmd', 'gz')            # gz CLI 命令名(harmonic 之前为 ign)
         self.declare_parameter('cli_timeout', 1.0)        # gz service 单次调用超时(秒)
 
@@ -119,8 +110,8 @@ class TargetAutoPoser(Node):
 
         # 直接存图（用于 target 手动标注）
         self.declare_parameter('image_topic', '/world/waterdrop_and_iris/model/waterdrop/link/camera_link/sensor/camera/image')
-        self.declare_parameter('save_images', False)
-        self.declare_parameter('output_dir', '/home/ahao/target_detection/target_manual_images')
+        self.declare_parameter('save_images', True)
+        self.declare_parameter('output_dir', 'target_manual_images')
         self.declare_parameter('val_ratio', 0.2)
         self.declare_parameter('jpeg_quality', 95)
 
@@ -129,7 +120,7 @@ class TargetAutoPoser(Node):
         self.declare_parameter('park_offset_y', 0.0)
         self.declare_parameter('park_rel_alt', 0.2)
 
-        self.declare_parameter('auto_start', False)
+        self.declare_parameter('auto_start', True)
         self.declare_parameter('seed', 42)
 
         p = self.get_parameter
@@ -161,6 +152,8 @@ class TargetAutoPoser(Node):
         # 存图相关
         self.save_images = p('save_images').value
         self.output_dir = Path(p('output_dir').value)
+        if not self.output_dir.is_absolute():
+            self.output_dir = (Path(__file__).resolve().parent.parent / self.output_dir).resolve()
         self.val_ratio = p('val_ratio').value
         self.jpeg_quality = p('jpeg_quality').value
         self.bridge = CvBridge()
@@ -178,8 +171,8 @@ class TargetAutoPoser(Node):
         self.rng = random.Random(p('seed').value)
 
         # ---- 状态 ----
-        self.backend = None            # 'gz_cli' / 'gz_ros' / 'classic'
-        self.cli = None                # ROS 服务客户端(gz_ros/classic 时用)
+        self.backend = None            # 'gz_cli' / 'classic'
+        self.cli = None                # ROS 服务客户端(classic 时用)
         self.gz_service = None         # gz transport 服务名(gz_cli 时用)
         self._cap_cli = None
         self._set_cli = None
@@ -227,18 +220,6 @@ class TargetAutoPoser(Node):
             self.gz_service = f'/world/{self.world_name}/set_pose'
             return True
         services = dict(self.get_service_names_and_types())
-        if backend in ('auto', 'gz_ros'):
-            for name, types in services.items():
-                if name.endswith('/set_pose') and any(
-                        'ros_gz_interfaces/srv/SetEntityPose' in t for t in types):
-                    if not HAS_ROS_GZ:
-                        self.get_logger().error(
-                            '检测到 gz_ros 服务但本机缺少 ros_gz_interfaces，'
-                            '请安装 ros-$ROS_DISTRO-ros-gz-interfaces')
-                        return False
-                    self.cli = self.create_client(SetEntityPose, name)
-                    self.backend = 'gz_ros'
-                    return True
         if backend in ('auto', 'classic') and '/gazebo/set_model_state' in services \
                 and HAS_GAZEBO_MSGS:
             self.cli = self.create_client(SetModelState, '/gazebo/set_model_state')
@@ -255,24 +236,16 @@ class TargetAutoPoser(Node):
         if self.cli is None or not self.cli.service_is_ready():
             return
         x, y, z, qx, qy, qz, qw = pose
-        if self.backend == 'gz_ros':
-            req = SetEntityPose.Request()
-            req.entity.name = self.model_name
-            req.entity.type = Entity.MODEL
-            req.pose.position.x, req.pose.position.y, req.pose.position.z = x, y, z
-            req.pose.orientation.x, req.pose.orientation.y = qx, qy
-            req.pose.orientation.z, req.pose.orientation.w = qz, qw
-        else:  # classic
-            req = SetModelState.Request()
-            req.model_state.model_name = self.model_name
-            req.model_state.pose.position.x = x
-            req.model_state.pose.position.y = y
-            req.model_state.pose.position.z = z
-            req.model_state.pose.orientation.x = qx
-            req.model_state.pose.orientation.y = qy
-            req.model_state.pose.orientation.z = qz
-            req.model_state.pose.orientation.w = qw
-            req.model_state.reference_frame = 'world'
+        req = SetModelState.Request()
+        req.model_state.model_name = self.model_name
+        req.model_state.pose.position.x = x
+        req.model_state.pose.position.y = y
+        req.model_state.pose.position.z = z
+        req.model_state.pose.orientation.x = qx
+        req.model_state.pose.orientation.y = qy
+        req.model_state.pose.orientation.z = qz
+        req.model_state.pose.orientation.w = qw
+        req.model_state.reference_frame = 'world'
         try:
             self._pending.append(self.cli.call_async(req))
         except Exception as e:

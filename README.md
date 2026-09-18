@@ -55,8 +55,8 @@ sudo apt install ros-$ROS_DISTRO-cv-bridge ros-$ROS_DISTRO-vision-opencv
 ### 1.2 创建虚拟环境
 
 ```bash
-python3 -m venv ~/target_detection/yolo_venv --system-site-packages
-source ~/target_detection/yolo_venv/bin/activate
+python3 -m venv ./yolo_venv --system-site-packages
+source ./yolo_venv/bin/activate
 ```
 
 ### 1.3 安装 GPU 版 PyTorch
@@ -95,7 +95,7 @@ pip install "numpy==1.26.4"   # 被升级了就拉回来
 **② 确认 `yolo` 命令来自 venv**
 
 ```bash
-which yolo    # 必须是 ~/target_detection/yolo_venv/bin/yolo
+which yolo    # 必须是 ./yolo_venv/bin/yolo
 ```
 
 若指向 `~/.local/bin/yolo`：
@@ -139,20 +139,19 @@ H 标位置由 `marker_x/y/z` 参数输入，脚本结合位姿和相机内外�
 
 ```bash
 source /opt/ros/$ROS_DISTRO/setup.bash
-source ~/target_detection/yolo_venv/bin/activate
-cd ~/target_detection/scripts
-python3 h_data_collector.py
+source ./yolo_venv/bin/activate
+python3 scripts/h_data_collector.py
 ```
 
-控制采集：
+节点启动后默认自动采集，按 `Ctrl-C` 停止即可。若需程序化控制，仍可用以下服务：
 
 ```bash
 ros2 service call /h_data_collector/set_collecting std_srvs/srv/SetBool "{data: true}"
 ros2 service call /h_data_collector/set_collecting std_srvs/srv/SetBool "{data: false}"
 ros2 service call /h_data_collector/capture_once std_srvs/srv/Trigger "{}"
-
-rqt_image_view   # 选 /h_data_collector/preview 查看绿框
 ```
+
+查看预览：`rqt_image_view`，选择 `/h_data_collector/preview`。
 
 输出到 `h_dataset/images/{train,val}` + `h_dataset/labels/{train,val}`，并自动生成 `h_dataset/h_marker.yaml`。
 
@@ -170,7 +169,7 @@ python3 scripts/target_auto_poser.py \
   -p look_at_target:=true \
   -p image_topic:=/world/waterdrop_and_iris/model/waterdrop/link/camera_link/sensor/camera/image \
   -p save_images:=true \
-  -p output_dir:=/home/ahao/target_detection/target_manual_images \
+  -p output_dir:=target_manual_images \
   -p auto_start:=true
 ```
 
@@ -180,12 +179,12 @@ python3 scripts/target_auto_poser.py \
 
 ```bash
 python3 scripts/manual_label.py \
-  --images /home/ahao/target_detection/target_manual_images/images/train \
-  --output /home/ahao/target_detection/target_manual_images/labels/train
+  --images target_manual_images/images/train \
+  --output target_manual_images/labels/train
 
 python3 scripts/manual_label.py \
-  --images /home/ahao/target_detection/target_manual_images/images/val \
-  --output /home/ahao/target_detection/target_manual_images/labels/val
+  --images target_manual_images/images/val \
+  --output target_manual_images/labels/val
 ```
 
 操作：鼠标左键拖拽画框，`n` 保存下一张，`r` 撤销，`s` 跳过，`q` 退出。
@@ -193,7 +192,7 @@ python3 scripts/manual_label.py \
 最后写数据集配置 `target_manual_images/dataset.yaml`：
 
 ```yaml
-path: /home/ahao/target_detection/target_manual_images
+path: .
 train: images/train
 val: images/val
 names: ['target']
@@ -205,8 +204,7 @@ nc: 1
 ## 4. 训练
 
 ```bash
-source ~/target_detection/yolo_venv/bin/activate
-cd ~/target_detection
+source ./yolo_venv/bin/activate
 
 # H 标自动标注得到的数据
 yolo detect train data=h_dataset/h_marker.yaml model=scripts/yolov8n.pt epochs=100 imgsz=640 device=0
@@ -225,11 +223,10 @@ yolo detect train data=target_manual_images/dataset.yaml model=scripts/yolov8n.p
 把训练好的权重放到 `scripts/` 下：
 
 ```bash
-cp runs/detect/train/weights/best.pt ~/target_detection/scripts/
+cp runs/detect/train/weights/best.pt scripts/
 source /opt/ros/$ROS_DISTRO/setup.bash
-source ~/target_detection/yolo_venv/bin/activate
-cd ~/target_detection/scripts
-python3 target_detector.py
+source ./yolo_venv/bin/activate
+python3 scripts/target_detector.py
 ```
 
 查看结果：

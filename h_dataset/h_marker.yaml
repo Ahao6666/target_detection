@@ -1,4 +1,4 @@
-path: /home/ahao/target_detection/h_dataset
+path: .
 train: images/train
 val: images/val
 names: ['h_marker']

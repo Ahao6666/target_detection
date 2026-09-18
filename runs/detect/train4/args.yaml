@@ -103,4 +103,4 @@ auto_augment: randaugment
 erasing: 0.4
 cfg: null
 tracker: botsort.yaml
-save_dir: /home/ahao/target_detection/runs/detect/train4
+save_dir: runs/detect/train4

@@ -90,7 +90,7 @@ class HDataCollector(Node):
         self.declare_parameter('image_topic', '/zed/left_camera_link/image_raw')
         self.declare_parameter('camera_info_topic', '/zed/left_camera_link/camera_info')
         self.declare_parameter('pose_topic', '/mavros/local_position/pose')
-        self.declare_parameter('output_dir', '/home/ahao/target_detection/h_dataset')
+        self.declare_parameter('output_dir', 'h_dataset')
         self.declare_parameter('val_ratio', 0.2)
         self.declare_parameter('seed', 42)
 
@@ -121,7 +121,7 @@ class HDataCollector(Node):
         self.declare_parameter('nudge_topic', '/h_data_collector/nudge')
 
         # 采集策略
-        self.declare_parameter('auto_start', False)      # 节点启动即开始自动采集
+        self.declare_parameter('auto_start', True)       # 节点启动即开始自动采集
         self.declare_parameter('auto_interval', 1.0)     # 自动采集最小间隔(秒)
         self.declare_parameter('min_shift_px', 25.0)     # 框中心最小位移，过滤悬停重复帧
         self.declare_parameter('min_depth', 0.5)         # 相机到 H 标中心距离下限(米)
@@ -141,6 +141,8 @@ class HDataCollector(Node):
 
         p = self.get_parameter
         self.output_dir = Path(p('output_dir').value)
+        if not self.output_dir.is_absolute():
+            self.output_dir = (Path(__file__).resolve().parent.parent / self.output_dir).resolve()
         self.val_ratio = p('val_ratio').value
         self.marker_size = p('marker_size').value
         self.marker_xyz = (p('marker_x').value, p('marker_y').value, p('marker_z').value)
