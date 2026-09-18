@@ -6,27 +6,29 @@
 ## 目录结构
 
 ```
-~/target_detection/
+target_detection/
 ├── scripts/
-│   ├── h_data_collector.py    # 机载相机：H 标数据采集 + 自动标注（ROS2 节点）
-│   ├── h_marker_detector.py   # H 标实时检测 + 相对位置解算（ROS2 节点）
-│   ├── target_auto_poser.py   # 自动摆位：随机改变相机位置并采集图像（ROS2 节点）
-│   ├── target_detector.py     # target 实时检测 + 方位角解算（ROS2 节点）
-│   ├── manual_label.py        # 手动画框，生成 YOLO txt
-│   ├── yolov8n.pt             # 官方预训练权重
-│   └── best.pt                # 训练得到的最佳权重（训练后生成）
-├── h_dataset/                 # h_data_collector 自动生成的 H 标数据集
+│   ├── h_data_collector.py       # 机载相机：H 标数据采集 + 自动标注（ROS2 节点）
+│   ├── h_marker_detector.py      # H 标实时检测 + 相对位置解算（ROS2 节点）
+│   ├── target_auto_poser.py      # 自动摆位：随机改变相机位置并采集图像（ROS2 节点）
+│   ├── target_detector.py        # target 实时检测 + 方位角解算（ROS2 节点）
+│   ├── compare_yolo_results.py   # 对比 /mavros/drone/detection_result_yolo 与 /mavros/drone/detection_result
+│   ├── manual_label.py           # 手动画框，生成 YOLO txt
+│   ├── yolov8n.pt                # 官方预训练权重
+│   └── best.pt                   # 训练得到的最佳权重（训练后生成）
+├── h_dataset/                    # h_data_collector 自动生成的 H 标数据集
 │   ├── images/{train,val}/*.jpg
 │   ├── labels/{train,val}/*.txt
 │   ├── log.csv
-│   └── h_marker.yaml          # h_dataset 的 YOLO 配置文件
-├── target_manual_images/      # target_auto_poser 自动存图 + manual_label.py 手标
+│   └── h_marker.yaml             # h_dataset 的 YOLO 配置文件
+├── target_manual_images/         # target_auto_poser 自动存图 + manual_label.py 手标
 │   ├── images/{train,val}/*.jpg
 │   ├── labels/{train,val}/*.txt
-│   └── dataset.yaml
-├── runs/detect/train*/        # 训练产物（best.pt / last.pt / results.png）
-├── weights/                   # Ultralytics 导出/训练时可能自动创建
-└── yolo_venv/                 # Python 虚拟环境
+│   ├── dataset.yaml
+│   └── manual_label_log.csv
+├── runs/detect/train*/           # 训练产物（best.pt / last.pt / results.png）
+├── weights/                      # Ultralytics 导出/训练时可能自动创建
+└── yolo_venv/                    # Python 虚拟环境
 ```
 
 ## 整体工作流
@@ -37,7 +39,7 @@
    - `h_data_collector.py`：根据 MAVROS 位姿 + 相机内外参自动投影生成 YOLO 标注
    - 输出到 `h_dataset/`，配置文件为 `h_dataset/h_marker.yaml`
 2. **target 自动摆位 + 手动标注**（高速/复杂姿态，随机改变相机位置后人工画框）
-   - `target_auto_poser.py -p save_images:=true`：随机改变相机位置并保存每个位姿的相机图片
+   - `target_auto_poser.py`：随机改变相机位置并保存每个位姿的相机图片
    - `manual_label.py`：用鼠标手动画框生成 target 标签
    - 输出到 `target_manual_images/`，配置文件为 `target_manual_images/dataset.yaml`
 
@@ -120,7 +122,7 @@ sudo sh start_docker_ardupilot_mavros.sh -v v1.1.5
 gz sim -v4 waterdrop_and_iris.sdf
 ```
 
-若使用 waterdrop 相机，需把 Gazebo 图像/相机信息桥接到 ROS2：
+若使用 Gazebo 相机，需把图像/相机信息桥接到 ROS2（**注意把 `waterdrop_and_iris` 换成你实际的世界名**）：
 
 ```bash
 ros2 run ros_gz_bridge parameter_bridge \
@@ -258,35 +260,55 @@ python3 scripts/target_detector.py
 查看结果：
 
 ```bash
-ros2 topic echo /mavros/drone/detection_result
+ros2 topic echo /mavros/drone/detection_result_yolo
 rqt_image_view   # 选 /target/annotated
 ```
 
-`target_detector.py` 会订阅 `camera_info` 动态获取相机内参，并发布 `std_msgs/Float32MultiArray` 到 `/mavros/drone/detection_result`。
+`target_detector.py` 会订阅 `camera_info` 动态获取相机内参，并发布 `std_msgs/Float32MultiArray` 到 `/mavros/drone/detection_result_yolo`。
 
 数组含义：
 - `[0]`：`pos_f`，前向相对位置，固定为 `0`
 - `[1]`：`pos_l`，左向相对位置，固定为 `0`
 - `[2]`：`pos_u`，上向相对位置，固定为 `0`
-- `[3]`：`yaw`（度），target 在图像左侧为正、右侧为负
-- `[4]`：`pitch`（度），target 在图像上方为正、下方为负
+- `[3]`：`yaw`（度），target 在图像**左侧为正、右侧为负**
+- `[4]`：`pitch`（度），target 在图像**上方为正、下方为负**
 - `[5]`：图像宽度（像素）
 - `[6]`：图像高度（像素）
 
-yaw/pitch 由像素偏差与 `camera_info` 焦距通过 `atan2` 计算，不依赖 target 实际尺寸。节点还会每 2 秒打印一次订阅频率和推理/发布频率。
+yaw/pitch 由像素偏差与 `camera_info` 焦距通过 `atan2` 计算，不依赖 target 实际尺寸。**没有检测到目标时，该话题不会发布新消息**。节点还会每 2 秒打印一次订阅频率和推理/发布频率。
+
+`/target/annotated` 图像上同时绘制了检测框、角度文字和相机中心红色十字线，方便用肉眼估计角度。
 
 ---
 
-## 6. 常见问题
+## 6. 结果对比（compare_yolo_results.py）
+
+用于同时订阅并对比两个检测结果话题：
+
+- `/mavros/drone/detection_result_yolo`（YOLO 检测输出）
+- `/mavros/drone/detection_result`（其他算法或真值输出）
+
+两者类型都是 `std_msgs/Float32MultiArray`，脚本只关注数组第 4/5/6/7 位（即索引 3/4/5/6），也就是 yaw / pitch / field 6 / field 7，并随时间绘制对比曲线。
+
+```bash
+source ./yolo_venv/bin/activate
+python3 scripts/compare_yolo_results.py
+```
+
+按 `Ctrl-C` 结束后，脚本会在当前目录生成 `compare_yolo_results.png` 并弹出对比图。每条曲线都用实心圆点标记数据点。
+
+---
+
+## 7. 常见问题
 
 - **`No module named 'torch'`**：`yolo` 命令不在 venv，重装 ultralytics。
 - **`_ARRAY_API not found`** / 段错误：NumPy 被升到 2.x，降回 `1.26.4`。
 - **CUDA out of memory**：加 `batch=8` 或 `imgsz=512`。
-
+- **目标检测到了但 `/mavros/drone/detection_result_yolo` 没数据**：确认 `scripts/best.pt` 存在，且 `target_detector.py` 里的图像话题和 `camera_info` 话题与你的仿真世界名一致。
 
 ---
 
-## 7. 当前验证通过的环境
+## 8. 当前验证通过的环境
 
 ```text
 OS:          Ubuntu 22.04
