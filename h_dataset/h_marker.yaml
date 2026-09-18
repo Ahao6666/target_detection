@@ -1,4 +1,4 @@
-path: .
+path: h_dataset
 train: images/train
 val: images/val
 names: ['h_marker']

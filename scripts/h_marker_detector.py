@@ -6,13 +6,13 @@ from geometry_msgs.msg import Point
 from cv_bridge import CvBridge
 from ultralytics import YOLO
 import cv2
-import math
 import numpy as np
 from pathlib import Path
 
-class TargetDetector(Node):
+
+class HMarkerDetector(Node):
     def __init__(self):
-        super().__init__('target_detector')
+        super().__init__('h_marker_detector')
 
         # 关键：传感器话题用 BEST_EFFORT QoS，否则收不到数据
         qos = QoSProfile(
@@ -21,17 +21,17 @@ class TargetDetector(Node):
             depth=1)
 
         self.bridge = CvBridge()
-        # 先用官方模型验证链路；训练好以后换成 best.pt
         model_path = Path(__file__).resolve().parent / 'best.pt'
         self.model = YOLO(str(model_path))
 
         self.K = None                    # 相机内参 3x3
-        self.create_subscription(Image, '/world/waterdrop_and_iris/model/waterdrop/link/camera_link/sensor/camera/image',
+        self.marker_size = 1.0           # H 标实际边长(米)，改成你的真实值
+        self.create_subscription(Image, '/zed/left_camera_link/image_raw',
                                  self.image_cb, qos)
-        self.create_subscription(CameraInfo, '/world/waterdrop_and_iris/model/waterdrop/link/camera_link/sensor/camera/camera_info',
+        self.create_subscription(CameraInfo, '/zed/left_camera_link/camera_info',
                                  self.info_cb, qos)
-        self.pub_img = self.create_publisher(Image, '/target/annotated', 10)
-        self.pub_ang = self.create_publisher(Point, '/target/angles', 10)
+        self.pub_img = self.create_publisher(Image, '/h_marker/annotated', 10)
+        self.pub_pos = self.create_publisher(Point, '/h_marker/position', 10)
 
     def info_cb(self, msg):
         # 只需要取一次内参
@@ -49,6 +49,7 @@ class TargetDetector(Node):
             box = max(results.boxes, key=lambda b: b.conf)
             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
             cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+            h_px = y2 - y1
 
             cv2.rectangle(out, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
 
@@ -56,37 +57,29 @@ class TargetDetector(Node):
                 fx, fy = self.K[0, 0], self.K[1, 1]
                 u0, v0 = self.K[0, 2], self.K[1, 2]
 
-                # 像素偏差 -> 相机光轴系下的方位角（弧度）
-                # yaw: 左正右负；pitch: 上正下负
-                yaw = math.atan2(u0 - cx, fx)
-                pitch = math.atan2(v0 - cy, fy)
+                # 单目尺寸法反推相对位置（相机坐标系：z 前 x 右 y 下）
+                z = fy * self.marker_size / h_px
+                x = z * (cx - u0) / fx
+                y = z * (cy - v0) / fy
 
-                ang = Point(x=float(yaw), y=float(pitch), z=0.0)
-                self.pub_ang.publish(ang)
-                cv2.putText(out,
-                            f'yaw={math.degrees(yaw):.1f}deg pitch={math.degrees(pitch):.1f}deg',
+                pos = Point(x=float(x), y=float(y), z=float(z))
+                self.pub_pos.publish(pos)
+                cv2.putText(out, f'x={x:.2f} y={y:.2f} z={z:.2f}m',
                             (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
                 self.get_logger().info(
-                    f'Angles: yaw={math.degrees(yaw):.1f}deg, pitch={math.degrees(pitch):.1f}deg',
+                    f'Relative pose: x={x:.2f}, y={y:.2f}, z={z:.2f}',
                     throttle_duration_sec=1.0)
-
-        # 绘制相机中心十字线（用主点或图像中心）
-        H, W = out.shape[:2]
-        if self.K is not None:
-            cx0, cy0 = int(self.K[0, 2]), int(self.K[1, 2])
-        else:
-            cx0, cy0 = W // 2, H // 2
-        cv2.line(out, (cx0, 0), (cx0, H), (0, 0, 255), 2)
-        cv2.line(out, (0, cy0), (W, cy0), (0, 0, 255), 2)
 
         self.pub_img.publish(self.bridge.cv2_to_imgmsg(out, encoding='bgr8'))
 
+
 def main():
     rclpy.init()
-    node = TargetDetector()
+    node = HMarkerDetector()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()

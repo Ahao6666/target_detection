@@ -9,8 +9,9 @@
 ~/target_detection/
 ├── scripts/
 │   ├── h_data_collector.py    # 机载相机：H 标数据采集 + 自动标注（ROS2 节点）
+│   ├── h_marker_detector.py   # H 标实时检测 + 相对位置解算（ROS2 节点）
 │   ├── target_auto_poser.py   # 自动摆位：随机改变相机位置并采集图像（ROS2 节点）
-│   ├── target_detector.py     # 实时检测 + 相对位置解算（ROS2 节点）
+│   ├── target_detector.py     # target 实时检测 + 方位角解算（ROS2 节点）
 │   ├── manual_label.py        # 手动画框，生成 YOLO txt
 │   ├── yolov8n.pt             # 官方预训练权重
 │   └── best.pt                # 训练得到的最佳权重（训练后生成）
@@ -226,17 +227,47 @@ yolo detect train data=target_manual_images/dataset.yaml model=scripts/yolov8n.p
 cp runs/detect/train/weights/best.pt scripts/
 source /opt/ros/$ROS_DISTRO/setup.bash
 source ./yolo_venv/bin/activate
+```
+
+### 5.1 H 标检测 + 相对位置
+
+若训练的是 H 标模型（知道 H 标实际尺寸），使用 `h_marker_detector.py`：
+
+```bash
+python3 scripts/h_marker_detector.py
+```
+
+查看结果：
+
+```bash
+ros2 topic echo /h_marker/position
+rqt_image_view   # 选 /h_marker/annotated
+```
+
+`/h_marker/position` 为 H 标中心在相机光轴系下的相对位置（z 前、x 右、y 下，单位米）。
+脚本内的 `marker_size` 请按实际 H 标边长修改。
+
+### 5.2 target 检测 + 方位角
+
+若训练的是 target（无人机）模型且不知道目标实际尺寸，使用 `target_detector.py`：
+
+```bash
 python3 scripts/target_detector.py
 ```
 
 查看结果：
 
 ```bash
-ros2 topic echo /target/position
+ros2 topic echo /target/angles
 rqt_image_view   # 选 /target/annotated
 ```
 
-`/target/position` 为 target 中心在左目相机光轴系下的位置（z 前、x 右、y 下，单位米）。
+`/target/angles` 为 target 中心相对相机光轴的方位角（弧度）：
+- `x`：yaw（偏航），target 在图像左侧为正、右侧为负
+- `y`：pitch（俯仰），target 在图像上方为正、下方为负
+- `z`：保留为 0
+
+该角度由像素偏差与焦距 `(fx, fy)` 通过 `atan2` 计算得到，不依赖 target 实际尺寸。
 
 ---
 
