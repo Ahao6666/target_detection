@@ -8,9 +8,9 @@ from ultralytics import YOLO
 import cv2
 import numpy as np
 
-class HMarkerDetector(Node):
+class TargetDetector(Node):
     def __init__(self):
-        super().__init__('h_marker_detector')
+        super().__init__('target_detector')
 
         # 关键：传感器话题用 BEST_EFFORT QoS，否则收不到数据
         qos = QoSProfile(
@@ -21,15 +21,16 @@ class HMarkerDetector(Node):
         self.bridge = CvBridge()
         # 先用官方模型验证链路；训练好以后换成 best.pt
         self.model = YOLO('best.pt')
+        self.model.names = {0: 'target'}
 
         self.K = None                    # 相机内参 3x3
-        self.marker_size = 1.0           # H 标实际边长(米)，改成你的真实值
+        self.target_size = 1.0           # target 实际边长(米)，改成你的真实值
         self.create_subscription(Image, '/zed/left_camera_link/image_raw',
                                  self.image_cb, qos)
         self.create_subscription(CameraInfo, '/zed/left_camera_link/camera_info',
                                  self.info_cb, qos)
-        self.pub_img = self.create_publisher(Image, '/h_marker/annotated', 10)
-        self.pub_pos = self.create_publisher(Point, '/h_marker/position', 10)
+        self.pub_img = self.create_publisher(Image, '/target/annotated', 10)
+        self.pub_pos = self.create_publisher(Point, '/target/position', 10)
 
     def info_cb(self, msg):
         # 只需要取一次内参
@@ -47,7 +48,7 @@ class HMarkerDetector(Node):
             box = max(results.boxes, key=lambda b: b.conf)
             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
             cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-            h_px = y2 - y1
+            box_h_px = y2 - y1
 
             cv2.rectangle(out, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
 
@@ -56,7 +57,7 @@ class HMarkerDetector(Node):
                 u0, v0 = self.K[0, 2], self.K[1, 2]
 
                 # 单目尺寸法反推相对位置（相机坐标系：z 前 x 右 y 下）
-                z = fy * self.marker_size / h_px
+                z = fy * self.target_size / box_h_px
                 x = z * (cx - u0) / fx
                 y = z * (cy - v0) / fy
 
@@ -72,7 +73,7 @@ class HMarkerDetector(Node):
 
 def main():
     rclpy.init()
-    node = HMarkerDetector()
+    node = TargetDetector()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()

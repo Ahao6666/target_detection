@@ -1,14 +1,14 @@
 """
 manual_label.py — 用鼠标在图像上框选目标，生成 YOLO 格式标注
 
-用途：对 h_auto_poser.py 保存下来的图片手动画框，每张图对应一个 .txt：
+用途：对 target_auto_poser.py 保存下来的图片手动画框，每张图对应一个 .txt：
     class_id cx cy w h
 其中 cx,cy,w,h 均为相对于图像宽高的归一化值。
 
 运行：
     python3 scripts/manual_label.py \
-      --images /home/ahao/target_detection/h_manual_images/images/train \
-      --output /home/ahao/target_detection/h_manual_images/labels/train
+      --images /home/ahao/target_detection/target_manual_images/images/train \
+      --output /home/ahao/target_detection/target_manual_images/labels/train
 
 操作：
     鼠标左键拖拽：画框

@@ -1,20 +1,25 @@
 """
-h_auto_poser.py — Gazebo 自动摆位节点（甜甜圈采样）
+target_auto_poser.py — Gazebo 自动摆位节点（甜甜圈采样）
 
 用途：自动把飞行器传送到目标(target)周围的随机位姿（环形分布，距离/高度/朝向/
 小倾角随机），并把模型"钉"在该位姿（按固定频率重复置位，抵抗重力下坠），同时
 向采集脚本发布**真值位姿**（传送会破坏 EKF，绕开后标注依然精确）。
 
-搭配使用（目标可以是 H 标或任何静止平面目标）：
-    # 终端1：采集脚本改听真值位姿（其 marker_x/y/z 与本节点 target_x/y/z 必须一致）
-    python3 h_data_collector.py -p pose_topic:=/h_auto_poser/model_pose
+搭配使用（目标可以是 target或任何静止平面目标）：
+    # 方式A：直接存图，用于 target 手动标注
+    python3 target_auto_poser.py -p save_images:=true \
+        -p output_dir:=/home/ahao/target_detection/target_manual_images
 
-    # 终端2：摆位节点
-    python3 h_auto_poser.py
+    # 方式B：与 H 标自动标注联动，target_auto_poser 提供真值位姿
+    # 终端1：采集脚本改听真值位姿（其 marker_x/y/z 与本节点 target_x/y/z 必须一致）
+    python3 h_data_collector.py -p pose_topic:=/target_auto_poser/model_pose
+
+    # 终端2：摆位节点（同时触发 h_data_collector 采集）
+    python3 target_auto_poser.py -p control_collector:=true
 
     # 终端3：开始/停止
-    ros2 service call /h_auto_poser/start std_srvs/srv/Trigger "{}"
-    ros2 service call /h_auto_poser/stop  std_srvs/srv/Trigger "{}"
+    ros2 service call /target_auto_poser/start std_srvs/srv/Trigger "{}"
+    ros2 service call /target_auto_poser/stop  std_srvs/srv/Trigger "{}"
 
 位姿设置后端（参数 backend:=auto 自动探测，默认优先 gz CLI）：
     1. gz_cli   : gz transport 服务，本机执行
@@ -29,13 +34,19 @@ h_auto_poser.py — Gazebo 自动摆位节点（甜甜圈采样）
 """
 
 import math
+import os
 import random
 import shutil
 import subprocess
+from pathlib import Path
 
+import cv2
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from cv_bridge import CvBridge
 from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import Image
 from std_srvs.srv import SetBool, Trigger
 
 try:
@@ -63,14 +74,14 @@ def rpy_to_quat(roll, pitch, yaw):
             cr * cp * cy + sr * sp * sy)
 
 
-class HAutoPoser(Node):
+class TargetAutoPoser(Node):
     def __init__(self):
-        super().__init__('h_auto_poser')
+        super().__init__('target_auto_poser')
 
         # ---- 参数 ----
         self.declare_parameter('model_name', 'waterdrop')
         self.declare_parameter('world_name', 'waterdrop_and_iris')  # gz-sim 世界名
-        # Gazebo 世界系中的目标位置：手动输入，必须与采集脚本的 marker_x/y/z 一致
+        # Gazebo 世界系中的目标位置：手动输入，必须与采集脚本的 target_x/y/z 一致
         self.declare_parameter('target_x', 0.0)
         self.declare_parameter('target_y', 0.0)
         self.declare_parameter('target_z', 150.0)
@@ -101,10 +112,17 @@ class HAutoPoser(Node):
         self.declare_parameter('cli_timeout', 1.0)        # gz service 单次调用超时(秒)
 
         # 与采集脚本联动
-        self.declare_parameter('pose_topic', '/h_auto_poser/model_pose')
-        self.declare_parameter('control_collector', True)
+        self.declare_parameter('pose_topic', '/target_auto_poser/model_pose')
+        self.declare_parameter('control_collector', False)
         self.declare_parameter('collector_set_collecting', '/h_data_collector/set_collecting')
         self.declare_parameter('collector_capture_once', '/h_data_collector/capture_once')
+
+        # 直接存图（用于 target 手动标注）
+        self.declare_parameter('image_topic', '/world/waterdrop_and_iris/model/waterdrop/link/camera_link/sensor/camera/image')
+        self.declare_parameter('save_images', False)
+        self.declare_parameter('output_dir', '/home/ahao/target_detection/target_manual_images')
+        self.declare_parameter('val_ratio', 0.2)
+        self.declare_parameter('jpeg_quality', 95)
 
         # 结束时的停放位姿（远离目标、贴地；停止钉持后模型就地停住）
         self.declare_parameter('park_offset_x', 3.0)
@@ -139,6 +157,23 @@ class HAutoPoser(Node):
         self.park = (self.target[0] + p('park_offset_x').value,
                      self.target[1] + p('park_offset_y').value,
                      self.target[2] + p('park_rel_alt').value)
+
+        # 存图相关
+        self.save_images = p('save_images').value
+        self.output_dir = Path(p('output_dir').value)
+        self.val_ratio = p('val_ratio').value
+        self.jpeg_quality = p('jpeg_quality').value
+        self.bridge = CvBridge()
+        self.latest_frame = None
+        self._image_warned = False
+        if self.save_images:
+            for split in ('train', 'val'):
+                (self.output_dir / 'images' / split).mkdir(parents=True, exist_ok=True)
+            qos = QoSProfile(
+                reliability=ReliabilityPolicy.BEST_EFFORT,
+                history=HistoryPolicy.KEEP_LAST,
+                depth=1)
+            self.create_subscription(Image, p('image_topic').value, self.image_cb, qos)
 
         self.rng = random.Random(p('seed').value)
 
@@ -314,6 +349,14 @@ class HAutoPoser(Node):
                                         throttle_duration_sec=2.0)
         self._pending = still
 
+    def image_cb(self, msg):
+        try:
+            self.latest_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        except Exception as e:
+            if not self._image_warned:
+                self.get_logger().warn(f'图像转换失败: {e}')
+                self._image_warned = True
+
     def _publish_pose(self, pose):
         x, y, z, qx, qy, qz, qw = pose
         msg = PoseStamped()
@@ -399,6 +442,8 @@ class HAutoPoser(Node):
                         self._cap_cli.call_async(Trigger.Request())
                     except Exception:
                         pass
+                if self.save_images:
+                    self._save_current_frame()
                 self.issued_caps += 1
                 self.last_cap_time = now
             if self.issued_caps >= self.cap_per_pose:
@@ -433,6 +478,18 @@ class HAutoPoser(Node):
         self.get_logger().info('开始自动摆位采集')
         self._teleport_next()
 
+    def _save_current_frame(self):
+        if self.latest_frame is None:
+            self.get_logger().warn('尚无图像，跳过保存', throttle_duration_sec=2.0)
+            return
+        split = 'val' if self.rng.random() < self.val_ratio else 'train'
+        now_ns = self.get_clock().now().nanoseconds
+        fname = f'frame_{self.poses_done}_{self.issued_caps}_{now_ns}.jpg'
+        out_path = self.output_dir / 'images' / split / fname
+        cv2.imwrite(str(out_path), self.latest_frame,
+                    [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
+        self.get_logger().info(f'保存 {split} 图片: {out_path}')
+
     def _finish(self):
         self.state = 'done'
         self.current_pose = self._quat_pose(*self.park, 0.0, 0.0, 0.0)
@@ -466,7 +523,7 @@ class HAutoPoser(Node):
 
 def main():
     rclpy.init()
-    node = HAutoPoser()
+    node = TargetAutoPoser()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

@@ -9,7 +9,7 @@ h_data_collector.py — H 标数据采集 + 自动标注
     h_dataset/
     ├── images/{train,val}/*.jpg
     └── labels/{train,val}/*.txt
-并在数据集上级目录生成 h_marker.yaml。
+并在数据集目录内生成 h_marker.yaml。
 
 运行（先启动仿真）：
     source /opt/ros/$ROS_DISTRO/setup.bash
@@ -137,7 +137,7 @@ class HDataCollector(Node):
         self.declare_parameter('jpeg_quality', 95)
         self.declare_parameter('publish_preview', True)
         self.declare_parameter('write_yaml', True)
-        self.declare_parameter('yaml_path', '')  # 空则为 output_dir 上级目录/h_marker.yaml
+        self.declare_parameter('yaml_path', '')  # 空则为 output_dir/h_marker.yaml
 
         p = self.get_parameter
         self.output_dir = Path(p('output_dir').value)
@@ -225,7 +225,7 @@ class HDataCollector(Node):
     # ---------------- 参数/初始化 ----------------
 
     def write_yaml(self, yaml_path):
-        yaml_path = Path(yaml_path) if yaml_path else self.output_dir.parent / 'h_marker.yaml'
+        yaml_path = Path(yaml_path) if yaml_path else self.output_dir / 'h_marker.yaml'
         content = (f'path: {self.output_dir.resolve()}\n'
                    'train: images/train\n'
                    'val: images/val\n'

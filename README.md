@@ -1,27 +1,28 @@
-# YOLO v8 用于 H 标检测
+# YOLO v8 用于 target（无人机）检测
 
-从仿真中采集 H 标图像、训练 YOLOv8、部署实时检测的完整流程。
+从仿真中采集目标图像、训练 YOLOv8、部署实时检测的完整流程。
+本项目同时支持 **H 标自动标注** 与 **target（无人机）手动标注** 两条数据链路。
 
 ## 目录结构
 
 ```
 ~/target_detection/
 ├── scripts/
-│   ├── h_data_collector.py    # 机载相机：数据采集 + 自动标注（ROS2 节点）
-│   ├── h_auto_poser.py        # 自动摆位：甜甜圈采样传送 + 可选存图（ROS2 节点）
-│   ├── h_marker_detector.py   # 实时检测 + 相对位置解算（ROS2 节点）
+│   ├── h_data_collector.py    # 机载相机：H 标数据采集 + 自动标注（ROS2 节点）
+│   ├── target_auto_poser.py   # 自动摆位：随机改变相机位置并采集图像（ROS2 节点）
+│   ├── target_detector.py     # 实时检测 + 相对位置解算（ROS2 节点）
 │   ├── manual_label.py        # 手动画框，生成 YOLO txt
 │   ├── yolov8n.pt             # 官方预训练权重
 │   └── best.pt                # 训练得到的最佳权重（训练后生成）
-├── h_dataset/                 # h_data_collector 自动生成的数据集
+├── h_dataset/                 # h_data_collector 自动生成的 H 标数据集
 │   ├── images/{train,val}/*.jpg
 │   ├── labels/{train,val}/*.txt
-│   └── log.csv
-├── h_manual_images/           # h_auto_poser 自动存图 + manual_label.py 手标
+│   ├── log.csv
+│   └── h_marker.yaml          # h_dataset 的 YOLO 配置文件
+├── target_manual_images/      # target_auto_poser 自动存图 + manual_label.py 手标
 │   ├── images/{train,val}/*.jpg
 │   ├── labels/{train,val}/*.txt
 │   └── dataset.yaml
-├── h_marker.yaml              # h_dataset 的 YOLO 配置文件
 ├── runs/detect/train*/        # 训练产物（best.pt / last.pt / results.png）
 ├── weights/                   # Ultralytics 导出/训练时可能自动创建
 └── yolo_venv/                 # Python 虚拟环境
@@ -31,11 +32,13 @@
 
 项目支持两种采集方式，按需选一种即可：
 
-1. **机载相机自动标注**（推荐，无人机在 H 标上方悬停）
+1. **H 标机载相机自动标注**（推荐，无人机在 H 标上方悬停）
    - `h_data_collector.py`：根据 MAVROS 位姿 + 相机内外参自动投影生成 YOLO 标注
-2. **自动摆位 + 手动标注**（高速/复杂姿态，自动摆位后人工画框）
-   - `h_auto_poser.py -p save_images:=true`：自动摆位并保存每个位姿的相机图片
-   - `manual_label.py`：用鼠标手动画框生成 YOLO 标签
+   - 输出到 `h_dataset/`，配置文件为 `h_dataset/h_marker.yaml`
+2. **target 自动摆位 + 手动标注**（高速/复杂姿态，随机改变相机位置后人工画框）
+   - `target_auto_poser.py -p save_images:=true`：随机改变相机位置并保存每个位姿的相机图片
+   - `manual_label.py`：用鼠标手动画框生成 target 标签
+   - 输出到 `target_manual_images/`，配置文件为 `target_manual_images/dataset.yaml`
 
 训练统一用 `yolo detect train data=<yaml> model=scripts/yolov8n.pt ...`。
 
@@ -130,7 +133,7 @@ ros2 run ros_gz_bridge parameter_bridge \
 
 ## 3. 数据采集
 
-### 3.1 机载相机自动标注（h_data_collector.py）
+### 3.1 H 标机载相机自动标注（h_data_collector.py）
 
 H 标位置由 `marker_x/y/z` 参数输入，脚本结合位姿和相机内外参自动投影生成标注。
 
@@ -151,15 +154,15 @@ ros2 service call /h_data_collector/capture_once std_srvs/srv/Trigger "{}"
 rqt_image_view   # 选 /h_data_collector/preview 查看绿框
 ```
 
-输出到 `h_dataset/images/{train,val}` + `h_dataset/labels/{train,val}`，并自动生成 `h_marker.yaml`。
+输出到 `h_dataset/images/{train,val}` + `h_dataset/labels/{train,val}`，并自动生成 `h_dataset/h_marker.yaml`。
 
-### 3.2 自动摆位 + 手动标注（h_auto_poser.py + manual_label.py）
+### 3.2 target 自动摆位 + 手动标注（target_auto_poser.py + manual_label.py）
 
-适合高速飞行或复杂视角：自动把模型传送到目标周围并保存图片，然后人工画框。
+适合高速飞行或复杂视角：随机改变相机位置并保存图片，然后人工画框。
 
 ```bash
 # 终端1：自动摆位并保存图片
-python3 scripts/h_auto_poser.py \
+python3 scripts/target_auto_poser.py \
   --ros-args \
   -p model_name:=waterdrop \
   -p world_name:=waterdrop_and_iris \
@@ -167,33 +170,33 @@ python3 scripts/h_auto_poser.py \
   -p look_at_target:=true \
   -p image_topic:=/world/waterdrop_and_iris/model/waterdrop/link/camera_link/sensor/camera/image \
   -p save_images:=true \
-  -p output_dir:=/home/ahao/target_detection/h_manual_images \
+  -p output_dir:=/home/ahao/target_detection/target_manual_images \
   -p auto_start:=true
 ```
 
-图片会保存到 `h_manual_images/images/{train,val}`。
+图片会保存到 `target_manual_images/images/{train,val}`。
 
 然后手动标注：
 
 ```bash
 python3 scripts/manual_label.py \
-  --images /home/ahao/target_detection/h_manual_images/images/train \
-  --output /home/ahao/target_detection/h_manual_images/labels/train
+  --images /home/ahao/target_detection/target_manual_images/images/train \
+  --output /home/ahao/target_detection/target_manual_images/labels/train
 
 python3 scripts/manual_label.py \
-  --images /home/ahao/target_detection/h_manual_images/images/val \
-  --output /home/ahao/target_detection/h_manual_images/labels/val
+  --images /home/ahao/target_detection/target_manual_images/images/val \
+  --output /home/ahao/target_detection/target_manual_images/labels/val
 ```
 
 操作：鼠标左键拖拽画框，`n` 保存下一张，`r` 撤销，`s` 跳过，`q` 退出。
 
-最后写数据集配置 `h_manual_images/dataset.yaml`：
+最后写数据集配置 `target_manual_images/dataset.yaml`：
 
 ```yaml
-path: /home/ahao/target_detection/h_manual_images
+path: /home/ahao/target_detection/target_manual_images
 train: images/train
 val: images/val
-names: ['h_marker']
+names: ['target']
 nc: 1
 ```
 
@@ -205,15 +208,15 @@ nc: 1
 source ~/target_detection/yolo_venv/bin/activate
 cd ~/target_detection
 
-# 自动标注得到的数据
-yolo detect train data=h_marker.yaml model=scripts/yolov8n.pt epochs=100 imgsz=640 device=0
+# H 标自动标注得到的数据
+yolo detect train data=h_dataset/h_marker.yaml model=scripts/yolov8n.pt epochs=100 imgsz=640 device=0
 
-# 或手动标注得到的数据
-yolo detect train data=h_manual_images/dataset.yaml model=scripts/yolov8n.pt epochs=100 imgsz=640 device=0
+# 或 target 手动标注得到的数据
+yolo detect train data=target_manual_images/dataset.yaml model=scripts/yolov8n.pt epochs=100 imgsz=640 device=0
 ```
 
 - `device=0` 指定 GPU；否则默认 CPU
-- 训练后验证：`yolo detect val data=h_marker.yaml model=runs/detect/train/weights/best.pt`
+- 训练后验证：`yolo detect val data=h_dataset/h_marker.yaml model=runs/detect/train/weights/best.pt`
 
 ---
 
@@ -226,17 +229,17 @@ cp runs/detect/train/weights/best.pt ~/target_detection/scripts/
 source /opt/ros/$ROS_DISTRO/setup.bash
 source ~/target_detection/yolo_venv/bin/activate
 cd ~/target_detection/scripts
-python3 h_marker_detector.py
+python3 target_detector.py
 ```
 
 查看结果：
 
 ```bash
-ros2 topic echo /h_marker/position
-rqt_image_view   # 选 /h_marker/annotated
+ros2 topic echo /target/position
+rqt_image_view   # 选 /target/annotated
 ```
 
-`/h_marker/position` 为 H 标中心在左目相机光轴系下的位置（z 前、x 右、y 下，单位米）。
+`/target/position` 为 target 中心在左目相机光轴系下的位置（z 前、x 右、y 下，单位米）。
 
 ---
 

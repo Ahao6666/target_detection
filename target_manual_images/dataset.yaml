@@ -1,0 +1,5 @@
+path: /home/ahao/target_detection/target_manual_images
+train: images/train
+val: images/val
+names: ['target']
+nc: 1

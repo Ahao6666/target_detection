@@ -1,7 +1,7 @@
 task: detect
 mode: train
 model: scripts/yolov8n.pt
-data: h_marker.yaml
+data: h_dataset/h_marker.yaml
 epochs: 100
 time: null
 patience: 100
