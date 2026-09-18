@@ -258,16 +258,22 @@ python3 scripts/target_detector.py
 查看结果：
 
 ```bash
-ros2 topic echo /target/angles
+ros2 topic echo /mavros/drone/detection_result
 rqt_image_view   # 选 /target/annotated
 ```
 
-`/target/angles` 为 target 中心相对相机光轴的方位角（弧度）：
-- `x`：yaw（偏航），target 在图像左侧为正、右侧为负
-- `y`：pitch（俯仰），target 在图像上方为正、下方为负
-- `z`：保留为 0
+`target_detector.py` 会订阅 `camera_info` 动态获取相机内参，并发布 `std_msgs/Float32MultiArray` 到 `/mavros/drone/detection_result`。
 
-该角度由像素偏差与焦距 `(fx, fy)` 通过 `atan2` 计算得到，不依赖 target 实际尺寸。
+数组含义：
+- `[0]`：`pos_f`，前向相对位置，固定为 `0`
+- `[1]`：`pos_l`，左向相对位置，固定为 `0`
+- `[2]`：`pos_u`，上向相对位置，固定为 `0`
+- `[3]`：`yaw`（度），target 在图像左侧为正、右侧为负
+- `[4]`：`pitch`（度），target 在图像上方为正、下方为负
+- `[5]`：图像宽度（像素）
+- `[6]`：图像高度（像素）
+
+yaw/pitch 由像素偏差与 `camera_info` 焦距通过 `atan2` 计算，不依赖 target 实际尺寸。节点还会每 2 秒打印一次订阅频率和推理/发布频率。
 
 ---
 
