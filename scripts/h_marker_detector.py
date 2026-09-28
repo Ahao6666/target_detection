@@ -21,7 +21,7 @@ class HMarkerDetector(Node):
             depth=1)
 
         self.bridge = CvBridge()
-        model_path = Path(__file__).resolve().parent / 'best.pt'
+        model_path = Path(__file__).resolve().parent / 'best_H.pt'
         self.model = YOLO(str(model_path))
 
         self.K = None                    # 相机内参 3x3
