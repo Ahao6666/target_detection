@@ -246,7 +246,7 @@ ros2 topic echo /h_marker/position
 rqt_image_view   # 选 /h_marker/annotated
 ```
 
-`/h_marker/position` 为 H 标中心在相机光轴系下的相对位置（z 前、x 右、y 下，单位米）。
+`/h_marker/position`（`geometry_msgs/PointStamped`）为 H 标中心在相机光轴系下的相对位置（z 前、x 右、y 下，单位米），`header.stamp` 沿用对应图像帧的时间戳。
 脚本内的 `marker_size` 请按实际 H 标边长修改。
 
 ### 5.2 target 检测 + 方位角

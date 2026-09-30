@@ -2,7 +2,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Image, CameraInfo
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import PointStamped
 from cv_bridge import CvBridge
 from ultralytics import YOLO
 import cv2
@@ -31,7 +31,7 @@ class HMarkerDetector(Node):
         self.create_subscription(CameraInfo, '/zed/left_camera_link/camera_info',
                                  self.info_cb, qos)
         self.pub_img = self.create_publisher(Image, '/h_marker/annotated', 10)
-        self.pub_pos = self.create_publisher(Point, '/h_marker/position', 10)
+        self.pub_pos = self.create_publisher(PointStamped, '/h_marker/position', 10)
 
     def info_cb(self, msg):
         # 只需要取一次内参
@@ -62,7 +62,12 @@ class HMarkerDetector(Node):
                 x = z * (cx - u0) / fx
                 y = z * (cy - v0) / fy
 
-                pos = Point(x=float(x), y=float(y), z=float(z))
+                pos = PointStamped()
+                pos.header.stamp = msg.header.stamp   # 沿用图像时间戳，方便与其他传感器对齐
+                pos.header.frame_id = msg.header.frame_id
+                pos.point.x = float(x)
+                pos.point.y = float(y)
+                pos.point.z = float(z)
                 self.pub_pos.publish(pos)
                 cv2.putText(out, f'x={x:.2f} y={y:.2f} z={z:.2f}m',
                             (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
