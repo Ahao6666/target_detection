@@ -63,8 +63,8 @@ class HMarkerDetector(Node):
                 y = z * (cy - v0) / fy
 
                 pos = PointStamped()
-                pos.header.stamp = msg.header.stamp   # 沿用图像时间戳，方便与其他传感器对齐
-                pos.header.frame_id = msg.header.frame_id
+                pos.header.stamp = self.get_clock().now().to_msg()
+                pos.header.frame_id = "camera_link"
                 pos.point.x = float(x)
                 pos.point.y = float(y)
                 pos.point.z = float(z)
