@@ -87,8 +87,10 @@ class HDataCollector(Node):
         super().__init__('h_data_collector')
 
         # ---- 参数 ----
-        self.declare_parameter('image_topic', '/zed/left_camera_link/image_raw')
-        self.declare_parameter('camera_info_topic', '/zed/left_camera_link/camera_info')
+        self.declare_parameter('image_topic',
+                       '/airsim_node/PX4/down_center_custom/Scene')
+        self.declare_parameter('camera_info_topic',
+                       '/airsim_node/PX4/down_center_custom/Scene/camera_info')
         self.declare_parameter('pose_topic', '/mavros/local_position/pose')
         self.declare_parameter('output_dir', 'h_dataset')
         self.declare_parameter('val_ratio', 0.2)
@@ -103,13 +105,11 @@ class HDataCollector(Node):
         # 相机外参：优先 TF(base_frame -> 相机光轴系)，失败时用静态安装参数
         self.declare_parameter('use_tf', True)
         self.declare_parameter('base_frame', 'base_link')  # 机体系；TF 失败时按相机帧前缀自动补候选
-        self.declare_parameter('cam_mount', 'down_gz')  # 本仿真: zed_camera include 姿态 pitch=90°(Gazebo 相机 X前Y左Z上)
-        # 相机在体系下的安装位置(米)，来自模型 SDF:
-        #   include 平移 (0,0,-0.124923) + imager 在相机模型内 (0.01,0.06,0)
-        #   经安装旋转 Ry(90°) 后到体系 (0, 0.06, -0.134923)
+        self.declare_parameter('cam_mount', 'down_gz')  # AirSim 相机 Pitch=-90° 朝下，机头朝图像上方
+        # AirSim 配置 Z=+0.10 沿 NED 向下，转换到 MAVROS FLU 机体系为 z=-0.10m。
         self.declare_parameter('cam_offset_x', 0.0)
-        self.declare_parameter('cam_offset_y', 0.06)
-        self.declare_parameter('cam_offset_z', -0.134923)
+        self.declare_parameter('cam_offset_y', 0.0)
+        self.declare_parameter('cam_offset_z', -0.10)
         self.declare_parameter('cam_roll', 0.0)   # 微调角(度)，在预设基础上叠加
         self.declare_parameter('cam_pitch', 0.0)
         self.declare_parameter('cam_yaw', 0.0)
@@ -269,8 +269,8 @@ class HDataCollector(Node):
             reason = '等待 camera_info'
         elif self.last_pose is None:
             reason = '等待位姿'
-        elif (self.get_clock().now() - self.last_pose_time).nanoseconds > 5e8:
-            reason = '位姿数据过期(>0.5s)'
+        elif (self.get_clock().now() - self.last_pose_time).nanoseconds > 1.0e9:
+            reason = '位姿数据过期(>1.0s)'
         else:
             T_world_cam = self.get_T_world_cam(msg.header.frame_id)
             if T_world_cam is None:

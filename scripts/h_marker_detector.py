@@ -21,15 +21,15 @@ class HMarkerDetector(Node):
             depth=1)
 
         self.bridge = CvBridge()
-        model_path = Path(__file__).resolve().parent / 'best_H.pt'
+        model_path = Path(__file__).resolve().parent / 'best_H__ue.pt'
         self.model = YOLO(str(model_path))
 
         self.K = None                    # 相机内参 3x3
         # H 标“最外侧正方形”的真实边长(米)，务必用尺子量准，这是唯一尺度来源
         self.marker_size = 1.0
-        self.create_subscription(Image, '/zed/left_camera_link/image_raw',
+        self.create_subscription(Image, '/airsim_node/PX4/down_center_custom/Scene',
                                  self.image_cb, qos)
-        self.create_subscription(CameraInfo, '/zed/left_camera_link/camera_info',
+        self.create_subscription(CameraInfo, '/airsim_node/PX4/down_center_custom/Scene/camera_info',
                                  self.info_cb, qos)
         self.pub_img = self.create_publisher(Image, '/h_marker/annotated', 10)
         self.pub_pos = self.create_publisher(PointStamped, '/h_marker/position', 10)
